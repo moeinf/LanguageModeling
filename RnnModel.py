@@ -522,15 +522,13 @@ class TfMultiCellLSTM():
                  num_classes=2,
                  num_layers=3,
                  truncated_backprop_length=3,
-                 batch_size=20,
-                 series_length=50000):
+                 batch_size=20):
         self.sess = session
         self.learning_rate = learning_rate
         self.num_classes = num_classes
         self.num_layers = num_layers
         self.truncated_backprop_length = truncated_backprop_length
         self.batch_size = batch_size
-        self.series_length = series_length
         self.state_size = state_size
 
         self._init_params()
@@ -553,22 +551,22 @@ class TfMultiCellLSTM():
         self.initial_state = tf.placeholder(tf.float32, [self.num_layers, 2, self.batch_size, self.state_size])
 
     def _init_variables(self):
-        self.W2 = tf.Variable(np.random.rand(self.state_size, self.num_classes), dtype=tf.float32)
-        self.b2 = tf.Variable(np.zeros((1, self.num_classes)), dtype=tf.float32)
+        self.W2 = tf.Variable(np.random.rand(self.state_size, self.num_classes), dtype=tf.float32, name='weight')
+        self.b2 = tf.Variable(np.zeros((1, self.num_classes)), dtype=tf.float32, name='bias')
 
     def inference_ops(self):
         #unpacking the input and states to the desired format
         self.inputs_series = tf.split(self.x, self.truncated_backprop_length, axis=1)
         self.labels_series = tf.unstack(self.y, axis=1)
-        state_per_layer_list = tf.unstack(self.initial_state, axis=0)
-        rnn_tuple_state = tuple([tf.contrib.rnn.LSTMStateTuple(state_per_layer_list[idx][0], state_per_layer_list[idx][1])
+        self.state_per_layer_list = tf.unstack(self.initial_state, axis=0)
+        self.rnn_tuple_state = tuple([tf.contrib.rnn.LSTMStateTuple(self.state_per_layer_list[idx][0], self.state_per_layer_list[idx][1])
              for idx in range(self.num_layers)])
         # Forward pass
         self.cell = tf.contrib.rnn.BasicLSTMCell(self.state_size, state_is_tuple=True)
         self.cell = tf.contrib.rnn.MultiRNNCell([self.cell] * self.num_layers, state_is_tuple=True)
-        states_series, self.final_state = tf.contrib.rnn.static_rnn(self.cell, self.inputs_series, rnn_tuple_state)
-        self.logits_series = [tf.matmul(state, self.W2) + self.b2 for state in states_series]
-
+        self.states_series, self.final_state = tf.contrib.rnn.static_rnn(self.cell, self.inputs_series, self.rnn_tuple_state)
+        self.logits_series = [tf.matmul(state, self.W2) + self.b2 for state in self.states_series]
+        #self.checkSum= tf.reduce_sum(self.logits_series,1)
 
     def loss_ops(self):
         self.losses = [tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels,logits=logits)
