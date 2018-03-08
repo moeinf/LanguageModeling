@@ -7,19 +7,20 @@ import time
 start_time = time.time()
 
 ###Parameters###
-num_epochs = 3
-truncated_backprop_length = 35
-learning_rate = 0.5
-state_size = 20
+num_epochs = 2
+truncated_backprop_length = 15
+learning_rate = 0.005
+state_size = 32
 num_layers = 2
 vocab_size = 10000
 print_freq = 100
 echo_step = 1
 batch_size = 20
-model_filename = './saved_models/MultiLayer_LSTM_model'+ '_' + str(truncated_backprop_length)+ '_' + str(state_size) + '_' + str(num_layers) #path for final trained model
 train_filename = 'ptb.train.txt'
 validation_filename = 'ptb.valid.txt'
 test_filename = 'ptb.test.txt'
+model_filename = './saved_models/MultiLayer_LSTM_model'+ '_' + str(truncated_backprop_length)+ '_' + str(state_size) + '_' + str(num_layers) + '_' + str(train_filename) #path for final trained model
+
 
 model_path = model_filename
 
@@ -30,6 +31,7 @@ def print_time():
 
 #the function does the training on train data, using mini-batches and
 #report the loss on the whole test data set frequently
+
 def train_with_batches(train_inputs,train_labels, validation_inputs, validation_labels):
 
     x = train_inputs
@@ -60,17 +62,17 @@ def train_with_batches(train_inputs,train_labels, validation_inputs, validation_
                 batchX = x[:,start_idx:end_idx]
                 batchY = y[:,start_idx:end_idx]
 
-                batch_cost, state = myRnn.batch_optimiztion(batchX,batchY,state)
+                batch_cost, state = myRnn.batch_optimiztion(batchX,batchY,state,0.8)
                 # predictions, single_predictions, batch_cost = myRnn.predict(batchX,batchY,states)
 
 
 
                 if batch_idx% print_freq == 0:
-                    print("Step",batch_idx, "Loss", batch_cost)
-                    #calculate the loss function of the so-far trained model on the test data
+                    print("Training loss at step",batch_idx, "=", batch_cost)
+                    # calculate the loss function of the so-far trained model on the test data
                     cumul_loss = 0
                     current_validation_state = np.zeros((num_layers, 2, batch_size, state_size))
-                    #extracting batches from the test data (it can also be done not in batches)
+                    #extracting batches from the test data (it can also be done not in mini-batches)
                     for batch_idx in range(validation_num_batches):
                         start_idx = batch_idx * truncated_backprop_length
                         end_idx = start_idx + truncated_backprop_length
@@ -80,14 +82,15 @@ def train_with_batches(train_inputs,train_labels, validation_inputs, validation_
 
                         _, _, validation_batch_cost, current_validation_state = myRnn.predict(batchX,
                                                                                               batchY,
-                                                                                              current_validation_state)
+                                                                                              current_validation_state,
+                                                                                              1)
                         cumul_loss = cumul_loss + validation_batch_cost
 
-                    print('validation data loss:', cumul_loss / validation_num_batches)
+                    print('validation data loss:', cumul_loss/validation_num_batches)
 
                 # save the model for later use
-                if model_path:
-                    myRnn._saver.save(sess, model_path)
+                    if model_path:
+                        myRnn._saver.save(sess, model_path)
 
 #this function is written to do the testing after the training is completely done
 #further we can manually stop the training at any time and use the so-far trained model
@@ -111,8 +114,8 @@ def test_with_batches(test_inputs, test_labels):
 
         current_test_state = np.zeros((num_layers, 2, batch_size, state_size))  # initial state of multi-layer LSTM
         #calculate the loss on the test data in mini-batches, it can also be done not in batches
-        cumul_loss = 0
 
+        cumul_loss = 0
         #extracting batches
         for batch_idx in range(test_num_batches):
             start_idx = batch_idx * truncated_backprop_length
@@ -121,7 +124,7 @@ def test_with_batches(test_inputs, test_labels):
             batchX = x_test[:, start_idx:end_idx]
             batchY = y_test[:, start_idx:end_idx]
 
-            predictions, single_predictions, batch_cost, current_test_state = myRnn.predict(batchX, batchY, current_test_state)
+            predictions, single_predictions, batch_cost, current_test_state = myRnn.predict(batchX, batchY, current_test_state,1)
             cumul_loss = cumul_loss + batch_cost
 
         print ("testing loss:", cumul_loss/test_num_batches)
@@ -137,7 +140,7 @@ x, y, x_validation, y_validation, x_test, y_test, train_length, validation_lengt
 num_batches = train_length// batch_size//truncated_backprop_length
 test_num_batches = test_length //batch_size // truncated_backprop_length
 validation_num_batches = validation_length //batch_size // truncated_backprop_length
-# print ("Training begins:")
+print ("Training begins:")
 train_with_batches(x,y,x_validation,y_validation)
 print ("Testing begins:")
 test_with_batches(x_test, y_test)

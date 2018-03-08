@@ -133,14 +133,12 @@ class cellRNN():
                  state_size=4,
                  num_classes=2,
                  truncated_backprop_length=3,
-                 batch_size=20,
-                 series_length=50000):
+                 batch_size=20):
         self.sess = session
         self.learning_rate = learning_rate
         self.num_classes = num_classes
         self.truncated_backprop_length = truncated_backprop_length
         self.batch_size = batch_size
-        self.series_length = series_length
         self.state_size = state_size
 
         self._init_params()
@@ -158,13 +156,13 @@ class cellRNN():
 
 
     def _init_params(self):
-        self.x = tf.placeholder(tf.float32,[self.batch_size,self.truncated_backprop_length])
+        self.x = tf.placeholder(tf.int32,[self.batch_size,self.truncated_backprop_length])
         self.y = tf.placeholder(tf.int32,[self.batch_size,self.truncated_backprop_length])
         self.initial_state = tf.placeholder(tf.float32,[self.batch_size,self.state_size])
 
     def _init_variables(self):
 
-        self.W = tf.Variable(np.random.rand(self.state_size+1,self.state_size),dtype=tf.float32)
+        self.W = tf.Variable(np.random.rand(self.state_size+self.num_classes,self.state_size),dtype=tf.float32)
         self.b = tf.Variable(np.zeros((1, self.state_size)), dtype=tf.float32)
 
         self.W2 = tf.Variable(np.random.rand(self.state_size, self.num_classes), dtype=tf.float32)
@@ -180,7 +178,8 @@ class cellRNN():
         # Forward pass
         states_series = []
         for current_input in self.inputs_series:
-            current_input = tf.reshape(current_input, [self.batch_size, 1])
+            current_input = tf.one_hot(current_input,self.num_classes,dtype=tf.float32)
+            current_input = tf.reshape(current_input, [self.batch_size, self.num_classes])
             input_and_state_concatenated = tf.concat([current_input, current_state],1)  # Increasing number of columns
 
             next_state = tf.tanh(tf.matmul(input_and_state_concatenated, self.W) + self.b)  # Broadcasted addition
@@ -231,14 +230,12 @@ class TfCellRNN():
                  state_size=4,
                  num_classes=2,
                  truncated_backprop_length=3,
-                 batch_size=20,
-                 series_length=50000):
+                 batch_size=20):
         self.sess = session
         self.learning_rate = learning_rate
         self.num_classes = num_classes
         self.truncated_backprop_length = truncated_backprop_length
         self.batch_size = batch_size
-        self.series_length = series_length
         self.state_size = state_size
 
         self._init_params()
@@ -522,6 +519,7 @@ class TfMultiCellLSTM():
                  num_classes=2,
                  num_layers=3,
                  truncated_backprop_length=3,
+                 hidden_dim=256,
                  batch_size=20):
         self.sess = session
         self.learning_rate = learning_rate
@@ -530,6 +528,7 @@ class TfMultiCellLSTM():
         self.truncated_backprop_length = truncated_backprop_length
         self.batch_size = batch_size
         self.state_size = state_size
+        self.hidden_dim = hidden_dim
 
         self._init_params()
         self._init_variables()
@@ -546,6 +545,7 @@ class TfMultiCellLSTM():
 
 
     def _init_params(self):
+        self.keep_prob = tf.placeholder(tf.float32)
         self.x = tf.placeholder(tf.float32,[self.batch_size,self.truncated_backprop_length])
         self.y = tf.placeholder(tf.int32,[self.batch_size,self.truncated_backprop_length])
         self.initial_state = tf.placeholder(tf.float32, [self.num_layers, 2, self.batch_size, self.state_size])
@@ -563,32 +563,131 @@ class TfMultiCellLSTM():
              for idx in range(self.num_layers)])
         # Forward pass
         self.cell = tf.contrib.rnn.BasicLSTMCell(self.state_size, state_is_tuple=True)
+        self.cell = tf.contrib.rnn.DropoutWrapper(self.cell, output_keep_prob=self.keep_prob)
         self.cell = tf.contrib.rnn.MultiRNNCell([self.cell] * self.num_layers, state_is_tuple=True)
         self.states_series, self.final_state = tf.contrib.rnn.static_rnn(self.cell, self.inputs_series, self.rnn_tuple_state)
         self.logits_series = [tf.matmul(state, self.W2) + self.b2 for state in self.states_series]
-        #self.checkSum= tf.reduce_sum(self.logits_series,1)
+
 
     def loss_ops(self):
         self.losses = [tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels,logits=logits)
                        for logits, labels in zip(self.logits_series, self.labels_series)]
         self.total_loss = tf.reduce_mean(self.losses)
     def optimization_ops(self):
-        self.train_step = tf.train.AdagradOptimizer(self.learning_rate).minimize(self.total_loss)
+        self.train_step = tf.train.AdamOptimizer(self.learning_rate).minimize(self.total_loss)
 
     def predict_ops(self):
         self.predictions_series = [tf.nn.softmax(logits) for logits in self.logits_series]
         self.single_prediction = [tf.argmax(logits,1) for logits in self.logits_series]
 
-    def batch_optimiztion(self, inputs, labels, state):
-        feed_dict = {self.x: inputs, self.y:labels, self.initial_state:state}
+    def batch_optimiztion(self, inputs, labels, state,keep_prob):
+        feed_dict = {self.x: inputs, self.y:labels, self.initial_state:state,self.keep_prob:keep_prob}
 
         batch_cost, __ , current_state = self.sess.run([self.total_loss, self.train_step, self.final_state],
                                        feed_dict=feed_dict)
         return batch_cost, current_state
 
-    def predict(self,inputs,labels, state):
-        feed_dict = {self.x: inputs, self.y: labels, self.initial_state:state}
+    def predict(self,inputs,labels, state,keep_prob):
+        feed_dict = {self.x: inputs, self.y: labels, self.initial_state:state,self.keep_prob:keep_prob}
         predictions, single_predictions, batch_cost,state = self.sess.run([self.predictions_series,
                                                               self.single_prediction,
                                                          self.total_loss,self.final_state],feed_dict=feed_dict)
         return predictions,single_predictions, batch_cost,state
+
+class gatedKneserNey():
+    def __init__(self,
+                 session=None,
+                 batch_size=20,
+                 learning_rate=0.05,
+                 hidden_dim1=256,
+                 hidden_dim2=128,
+                 num_classes=1000):
+        self.sess = session
+        self.batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.hidden_dim1 = hidden_dim1
+        self.hidden_dim2 = hidden_dim2
+        self.num_classes = num_classes
+
+        self._init_params()
+        self._init_variables()
+
+        self.inference_ops()
+        self.loss_ops()
+        self.optimization_ops()
+
+
+        self.init = tf.global_variables_initializer()
+        self.sess.run(self.init)
+
+        self._saver = tf.train.Saver()
+
+    def _init_params(self):
+
+        self.x = tf.sparse_placeholder(tf.float32, [None,self.num_classes],"prev_word")
+        self.y = tf.placeholder(tf.int32, [None],"next_word")
+        self.keep_prob = tf.placeholder(tf.float32)
+
+    def _init_variables(self):
+
+        self.A = tf.Variable(tf.truncated_normal([self.num_classes,self.num_classes],stddev=0.0001))
+        # self.B = tf.Variable(tf.truncated_normal([self.hidden_dim1,self.num_classes],stddev=0.0001))
+        # self.C = tf.Variable(tf.truncated_normal([self.hidden_dim2,self.num_classes],stddev=0.001))
+        # self.W = tf.Variable(tf.truncated_normal([self.num_classes,self.num_classes],stddev=0.01))
+        # self.b = tf.Variable(tf.truncated_normal([self.num_classes],stddev=0.01))
+        self.z = tf.Variable(tf.truncated_normal([self.num_classes],stddev=0.001))
+        self.backoff = tf.Variable(tf.truncated_normal([self.num_classes],stddev=0.001))
+
+        # self.pi1 = tf.Variable(tf.truncated_normal([self.num_classes],stddev=0.01))
+        # self.pi2 = tf.Variable(tf.truncated_normal([self.num_classes],stddev=0.01))
+
+
+
+    def inference_ops(self):
+        # z = tf.nn.relu(tf.add(tf.sparse_tensor_dense_matmul(self.x,self.W),self.b))
+        # self.z = tf.nn.sigmoid(self.z)
+        self.zp = tf.add(tf.ones([self.num_classes],tf.float32),tf.negative(self.z))
+        # print('### z:', self.z.get_shape().as_list())
+        #backoff_comp = tf.nn.softmax(tf.multiply(self.zp,self.backoff))
+        backoff_comp = tf.nn.softmax(self.backoff)
+        print('### backoff_comp:', backoff_comp.get_shape().as_list())
+        layer1 = tf.nn.relu(tf.sparse_tensor_dense_matmul(self.x,self.A))
+        layer1 = tf.nn.dropout(layer1,self.keep_prob)
+        # layer2 = tf.nn.relu(tf.matmul(layer1,self.B))
+        # layer2 = tf.nn.dropout(layer2,0.7)
+        count_comp = tf.nn.softmax(layer1)
+        # count_comp = tf.nn.softmax(tf.matmul(layer1,self.B))
+
+        self.logits = tf.add(tf.multiply(self.z,count_comp),tf.multiply(self.zp,backoff_comp))
+        # self.logits = tf.log(self.logits)
+
+        print('### logits:', self.logits.get_shape().as_list())
+        # self.pred = tf.nn.softmax(self.logits)
+        self.pred = self.logits
+        return
+
+    def loss_ops(self):
+        self.weights = tf.trainable_variables()
+        self.l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in self.weights]) * 0.0001
+        one_hot_labels = tf.one_hot(indices=tf.cast(self.y,tf.int32),depth=self.num_classes)
+        self.loss = tf.reduce_mean(-tf.reduce_sum(one_hot_labels * tf.log(self.logits),reduction_indices=[1]))
+        # self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.y,logits=self.logits))
+        return
+
+    def optimization_ops(self):
+        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+        gvs = optimizer.compute_gradients(self.loss+self.l2_loss)
+        capped_gvs = [(tf.clip_by_norm(grad, 1), var) for grad, var in gvs]
+        self.train_step= optimizer.apply_gradients(capped_gvs)
+        # self.train_step = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
+        return
+
+    def batch_optimization(self, inputs, labels, keep_prob):
+        feed_dict = {self.x: inputs, self.y: labels,self.keep_prob:keep_prob}
+        batch_cost, _ = self.sess.run([self.loss, self.train_step],feed_dict=feed_dict)
+        return batch_cost
+
+    def predict(self,inputs,labels,keep_prob):
+        feed_dict = {self.x: inputs, self.y: labels, self.keep_prob:keep_prob}
+        batch_cost, predictions = self.sess.run([self.loss, self.pred], feed_dict=feed_dict)
+        return batch_cost,predictions
