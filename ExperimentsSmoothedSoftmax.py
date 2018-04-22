@@ -1,13 +1,13 @@
 from __future__ import print_function, division
 from utils import preProcess
 import tensorflow as tf
-from RnnModel import TfMultiCellLSTM
+from RnnModel import SmoothedSoftmax
 import logging
 import numpy as np
 
 
 ###Parameters###
-num_epochs = 50
+num_epochs = 30
 truncated_backprop_length = 25
 test_truncated_length = 1
 learning_rate = 1
@@ -17,25 +17,24 @@ num_layers = 1
 vocab_size = 10000
 print_freq = 100
 batch_size = 20
-regularizer = 0.0001
-keep_prob = 0.5
 test_batch_size = 1
+beta=0.5
 max_learning_rate_decay = 8
-
-## data paths
-log_filename = './logs/MultiLSTM.log'
+smoothing = 'separate-softmax'
+log_filename = './logs/'+smoothing+'.log'
 train_filename = '../data/ptb/ptb.train.txt'
 validation_filename = '../data/ptb/ptb.valid.txt'
 test_filename = '../data/ptb/ptb.test.txt'
-model_filename = './saved_models/MultiLayerLSTM/' + \
+model_filename = './saved_models/'+smoothing+'/' + \
                  str(truncated_backprop_length) + '_' + str(
     state_size) + '_' + str(num_layers)
+# path for final trained model
+
 model_path = model_filename
 
 
 # the function does the training on train data, using mini-batches and
-# report the loss on the whole validation data set after each epoch
-# and reloads the epoch with the minimum validation loss to continue training
+# report the loss on the whole test data set frequently
 
 def train_with_batches(train_inputs, train_labels, validation_inputs, validation_labels):
     x = train_inputs
@@ -44,7 +43,7 @@ def train_with_batches(train_inputs, train_labels, validation_inputs, validation
     y_validation = validation_labels
 
     with tf.Session() as sess:
-        myRnn = TfMultiCellLSTM(session=sess,
+        myRnn = SmoothedSoftmax(session=sess,
                                 learning_rate=learning_rate,
                                 state_size=state_size,
                                 num_classes=vocab_size,
@@ -52,7 +51,8 @@ def train_with_batches(train_inputs, train_labels, validation_inputs, validation
                                 truncated_backprop_length=truncated_backprop_length,
                                 embed_dim=embedding_size,
                                 batch_size=batch_size,
-                                regularizer=regularizer)
+                                beta=beta,
+                                smoothing=smoothing)
 
         prev_valid_preplixity = None
         decay = 0
@@ -70,10 +70,9 @@ def train_with_batches(train_inputs, train_labels, validation_inputs, validation
                 batchX = x[:, start_idx:end_idx]
                 batchY = y[:, start_idx:end_idx]
 
-                batch_cost, state = myRnn.batch_optimiztion(batchX,
-                                                            batchY,
-                                                            state,
-                                                            keep_prob)
+                batch_cost, state = myRnn.batch_optimiztion(batchX, batchY, state, 0.5)
+                # predictions, single_predictions, batch_cost =
+                # myRnn.predict(batchX,batchY,states)
 
                 if batch_idx % print_freq == 0:
                     logging.info("Training loss at step %d = %f",
@@ -83,7 +82,8 @@ def train_with_batches(train_inputs, train_labels, validation_inputs, validation
             # the test data
             cumul_loss = 0
             current_validation_state = sess.run(myRnn._initial_state)
-
+            # extracting batches from the test data (it can also be done not
+            #  in mini-batches)
             for batch_idx in range(validation_num_batches):
                 start_idx = batch_idx * truncated_backprop_length
                 end_idx = start_idx + truncated_backprop_length
@@ -103,8 +103,7 @@ def train_with_batches(train_inputs, train_labels, validation_inputs, validation
             if prev_valid_preplixity!=None and valid_preplixity - prev_valid_preplixity > 0:
                 myRnn.learning_rate = myRnn.learning_rate / 2
                 decay = decay + 1
-                logging.info("loading epoch %d parameters, preplixity %f", best_epoch,
-                             best_valid_preplixity)
+                logging.info("loading epoch %d parameters, preplixity %f", best_epoch,best_valid_preplixity)
                 myRnn._saver.restore(sess,model_path+'_epoch%d.ckpt' % best_epoch)
 
             prev_valid_preplixity = valid_preplixity
@@ -125,7 +124,6 @@ def train_with_batches(train_inputs, train_labels, validation_inputs, validation
 # this function is written to do the testing after the training is completely done
 # further we can manually stop the training at any time and use the so-far trained model
 # stored in model_path for evaluation on the test set
-
 def test_with_batches(test_inputs, test_labels,best_epoch):
     cumul_loss = 0
     x_test = test_inputs
@@ -134,7 +132,7 @@ def test_with_batches(test_inputs, test_labels,best_epoch):
     tf.reset_default_graph()
 
     with tf.Session() as sess:
-        myRnn = TfMultiCellLSTM(session=sess,
+        myRnn = SmoothedSoftmax(session=sess,
                                 learning_rate=learning_rate,
                                 state_size=state_size,
                                 num_classes=vocab_size,
@@ -142,7 +140,8 @@ def test_with_batches(test_inputs, test_labels,best_epoch):
                                 truncated_backprop_length=test_truncated_length,
                                 embed_dim=embedding_size,
                                 batch_size=test_batch_size,
-                                regularizer=regularizer)
+                                beta=beta,
+                                smoothing=smoothing)
         logging.info("loading epoch %d parameters", best_epoch)
         myRnn._saver.restore(sess, model_path + '_epoch%d.ckpt' % best_epoch)
 
@@ -164,8 +163,6 @@ def test_with_batches(test_inputs, test_labels,best_epoch):
         logging.info("testing loss = %f",
                      cumul_loss / test_num_batches / test_truncated_length)
 
-##main body of the script: loading the data files,
-# pre-process them, and calling train and test functions
 
 logging.basicConfig(filename=log_filename,
                     format='%(asctime)s %(message)s',
@@ -184,8 +181,7 @@ x_tes, y_tes, train_length, validation_length, test_length = preProcess(
 num_batches = train_length // batch_size // truncated_backprop_length
 test_num_batches = test_length // batch_size // truncated_backprop_length
 validation_num_batches = validation_length // batch_size // truncated_backprop_length
-best_epoch = 0 #if nothing is returned from train function
-
+best_epoch = 0
 logging.info("Training begins:")
 _,best_epoch = train_with_batches(x_train, y_train, x_valid, y_valid)
 
@@ -194,7 +190,6 @@ _, _, _, _, x_tes, y_tes, _, _, test_length = preProcess(train_filename,
                                                         test_filename,
                                                         vocab_size,
                                                         test_batch_size)
-
 test_num_batches = test_length // test_batch_size // test_truncated_length
 logging.info("Testing begins:")
 test_with_batches(x_tes, y_tes,best_epoch)
