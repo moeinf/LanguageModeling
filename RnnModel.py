@@ -648,7 +648,8 @@ class TfMultiCellLSTM():
                  truncated_backprop_length=10,
                  embed_dim=100,
                  batch_size=20,
-                 regularizer=0.0):
+                 regularizer=0.0,
+                 init_scale=0.1):
 
         self.sess = session
         self.learning_rate = learning_rate
@@ -659,6 +660,7 @@ class TfMultiCellLSTM():
         self.state_size = state_size
         self.embed_dim = embed_dim
         self.regularizer = regularizer
+        self.init_scale = init_scale
 
         self._init_params()
         self._init_variables()
@@ -684,10 +686,10 @@ class TfMultiCellLSTM():
 
     def _init_variables(self):
 
-        self.W2 = tf.Variable(np.random.rand(self.state_size, self.num_classes),
-                              dtype=tf.float32, name='weight')
-        self.b2 = tf.Variable(np.random.rand(1, self.num_classes), dtype=tf.float32, name='bias')
-        self.embeddings = tf.get_variable("embeddings", [self.num_classes, self.embed_dim])
+        initializer = tf.random_uniform_initializer(-self.init_scale,self.init_scale,seed=123)
+        self.W2 = tf.get_variable('weight', [self.state_size, self.num_classes], initializer=initializer)
+        self.b2 = tf.get_variable('bias',[1,self.num_classes],initializer=initializer)
+        self.embeddings = tf.get_variable("embeddings", [self.num_classes, self.embed_dim],initializer=initializer)
 
 
     def inference_ops(self):
@@ -1071,20 +1073,25 @@ class gatedKneserNey():
                  session=None,
                  batch_size=20,
                  learning_rate=0.05,
+                 embedding_dim=128,
                  hidden_dim1=256,
                  hidden_dim2=128,
                  num_classes=1000,
-                 regularizer=0.00001):
+                 regularizer=0.00001,
+                 init_scale=0.08):
 
         self.sess = session
         self.batch_size = batch_size
         self.learning_rate = learning_rate
+        self.embedding_dim = embedding_dim
         self.hidden_dim1 = hidden_dim1
         self.hidden_dim2 = hidden_dim2
         self.num_classes = num_classes
         self.regularizer = regularizer
+        self.init_scale = init_scale
         self._init_params()
         self._init_variables()
+
 
         self.inference_ops()
         self.loss_ops()
@@ -1098,26 +1105,39 @@ class gatedKneserNey():
 
     def _init_params(self):
 
-        self.x = tf.sparse_placeholder(tf.float32, [None,self.num_classes],"prev_word")
+        self.x = tf.placeholder(tf.int32, [None],"prev_word")
         self.y = tf.placeholder(tf.int32, [None],"next_word")
         self.keep_prob = tf.placeholder(tf.float32)
 
     def _init_variables(self):
 
+        # self.embeddings = tf.Variable(tf.random_uniform([self.num_classes,self.num_classes],
+        #                               -5*self.init_scale, 5*self.init_scale))
+
+
         ##variables for hidden layers (transition probability matrix)
 
-        self.W1 = tf.Variable(tf.truncated_normal([self.num_classes,self.hidden_dim1],stddev=0.0001))
-        self.W2 = tf.Variable(tf.truncated_normal([self.hidden_dim1,self.hidden_dim2],stddev=0.001))
-        self.W3 = tf.Variable(tf.truncated_normal([self.hidden_dim2,self.num_classes],stddev=0.0001))
-
-        self.b1 = tf.Variable(tf.truncated_normal([self.hidden_dim1],stddev=0.001))
-        self.b2 = tf.Variable(tf.truncated_normal([self.hidden_dim2],stddev=0.001))
-        self.b3 = tf.Variable(tf.truncated_normal([self.num_classes],stddev=0.0001))
+        self.embeddings = tf.Variable(tf.random_uniform([self.num_classes,self.embedding_dim],
+                                                        -7*self.init_scale ,7*self.init_scale))
+        self.W1 = tf.Variable(tf.random_uniform([self.embedding_dim,self.hidden_dim1],
+                                                -self.init_scale, self.init_scale))
+        self.W2 = tf.Variable(tf.random_uniform([self.hidden_dim1,self.hidden_dim2],
+                                                -self.init_scale, self.init_scale))
+        self.W3 = tf.Variable(tf.random_uniform([self.hidden_dim2,self.num_classes],
+                                                -7*self.init_scale, 7*self.init_scale))
+        self.b1 = tf.Variable(tf.random_uniform([self.hidden_dim1],
+                                                -self.init_scale, self.init_scale))
+        self.b2 = tf.Variable(tf.random_uniform([self.hidden_dim2],
+                                                -self.init_scale, self.init_scale))
+        self.b3 = tf.Variable(tf.random_uniform([self.num_classes],
+                                                -7*self.init_scale, 7*self.init_scale))
 
         ### variables for interpolation coefficient and backoff component
 
-        # self.Wz = tf.Variable(tf.truncated_normal([self.num_classes,2],stddev=0.0001))
-        # self.backoff = tf.Variable(tf.truncated_normal([self.num_classes],stddev=0.0001))
+        # self.Wz = tf.Variable(tf.random_uniform([self.embedding_dim,2],
+        #                                         -self.init_scale ,self.init_scale ))
+        # self.backoff = tf.Variable(tf.random_uniform([self.num_classes],
+        #                                              -self.init_scale ,self.init_scale ))
 
 
 
@@ -1125,12 +1145,12 @@ class gatedKneserNey():
     def inference_ops(self):
 
         ## model 1- Gated Kneser-Ney
-
-        # self.z = tf.nn.softmax(tf.sparse_tensor_dense_matmul(self.x,self.Wz))
-        # self.check_z = tf.reduce_sum(self.z)
+        # self.inputs = tf.nn.embedding_lookup(self.embeddings,self.x)
+        # self.z = tf.nn.softmax(tf.matmul(self.inputs, self.Wz))
+        # # self.check_z = tf.reduce_sum(self.z,axis=1)
         # self.backoff_comp = tf.multiply(tf.slice(self.z,[0,0],[-1,1]),tf.nn.softmax(self.backoff))
-        # self.check_b =tf.reduce_sum(self.backoff_comp)
-        # layer1 = tf.nn.relu(tf.add(tf.sparse_tensor_dense_matmul(self.x, self.W1), self.b1))
+        # # self.check_b =tf.reduce_sum(self.backoff_comp,axis=1)
+        # layer1 = tf.nn.relu(tf.add(tf.matmul(self.inputs, self.W1), self.b1))
         # layer1 = tf.nn.dropout(layer1, self.keep_prob)
         # layer2 = tf.nn.relu(tf.add(tf.matmul(layer1, self.W2), self.b2))
         # layer2 = tf.nn.dropout(layer2, self.keep_prob)
@@ -1138,23 +1158,29 @@ class gatedKneserNey():
         # layer3 = tf.nn.dropout(layer3,self.keep_prob)
         # self.count_comp = tf.nn.softmax(layer3)
         # self.count_comp = tf.multiply(tf.slice(self.z,[0,1],[-1,1]),self.count_comp)
-        # self.check_c = tf.reduce_sum(self.count_comp,axis=1)
+        # # self.check_c = tf.reduce_sum(self.count_comp,axis=1)
         # self.logits = tf.add(self.count_comp,self.backoff_comp)
         # self.logits = tf.log(self.logits)
         # print('### logits:', self.logits.get_shape().as_list())
-        # # self.pred = tf.nn.softmax(self.logits)
-
+        #
         #### model 2: just transition probability matrix, using hidden layers
 
-
-        layer1 = tf.nn.relu(tf.add(tf.sparse_tensor_dense_matmul(self.x,self.W1),self.b1))
+      
+        self.inputs = tf.nn.embedding_lookup(self.embeddings,self.x)
+        self.inputs = tf.nn.dropout(self.inputs,self.keep_prob)
+        print('iuputs size: ', self.inputs.get_shape().as_list())
+        layer1 = tf.nn.tanh(tf.add(tf.matmul(self.inputs,self.W1),self.b1))
         layer1 = tf.nn.dropout(layer1,self.keep_prob)
-        layer2 = tf.nn.relu(tf.add(tf.matmul(layer1,self.W2),self.b2))
-        layer2 = tf.nn.dropout(layer2,self.keep_prob)
-        layer3 = tf.add(tf.matmul(layer2,self.W3),self.b3)
-        self.logits = layer3
+        # layer2 = tf.nn.tanh(tf.add(tf.matmul(layer1,self.W2),self.b2))
+        # layer2 = tf.nn.dropout(layer2,self.keep_prob)
+        self.logits = tf.add(tf.matmul(layer1,self.W3),self.b3)
+
+        ####model 3: learning just a probability matrix
+        # self.logits = tf.nn.embedding_lookup(self.embeddings,self.x)
+
+
         print('### logits:', self.logits.get_shape().as_list())
-        # self.pred = tf.nn.softmax(self.logits)
+
         return
 
     def loss_ops(self):
@@ -1166,15 +1192,16 @@ class gatedKneserNey():
         return
 
     def optimization_ops(self):
-        optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
-        gvs = optimizer.compute_gradients(self.loss+self.l2_loss)
-        capped_gvs = [(tf.clip_by_norm(grad, 5), var) for grad, var in gvs]
-        self.train_step= optimizer.apply_gradients(capped_gvs)
+        self.train_step = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss+self.l2_loss)
+        # optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+        # gvs = optimizer.compute_gradients(self.loss)
+        # capped_gvs = [(tf.clip_by_norm(grad, 5), var) for grad, var in gvs]
+        # self.train_step= optimizer.apply_gradients(capped_gvs)
         return
 
     def batch_optimization(self, inputs, labels, keep_prob):
         feed_dict = {self.x: inputs, self.y: labels,self.keep_prob:keep_prob}
-        batch_cost, _= self.sess.run([self.loss, self.train_step],feed_dict=feed_dict)
+        batch_cost, _= self.sess.run([self.loss,self.train_step],feed_dict=feed_dict)
         return batch_cost
 
     def predict(self,inputs,labels,keep_prob):

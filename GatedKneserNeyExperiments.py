@@ -7,21 +7,7 @@ import time
 def print_time():
     print '--- time: ', (time.time() - start_time) // 60,'minutes',\
         (time.time() - start_time) % 60, 'seconds'
-def extract_words(data_batch, vocab_size):
-    batch_len = len(data_batch)
-    shape = np.array([batch_len, vocab_size], dtype=np.int64)
-    indices_array = []
-    values_array = []
-    # inputs = np.zeros([batch_len,vocab_size])
-    label = np.zeros([batch_len])
-    for batch_index in range(batch_len):
-        input_idx = data_batch[batch_index][0]
-        label_idx = data_batch[batch_index][1]
-        label[batch_index] = label_idx
-        indices_array.append([batch_index, input_idx])
-        values_array.append(1.0)
-        # inputs[batch_index][input_idx] = 1
-    return label, np.array(indices_array, dtype=np.int64), np.array(values_array, dtype=np.float32), shape
+
 
 def train_with_minibatch(train_data, test_data, model_filename, passes, batch_size,test_batch_size):
     model_path = model_filename
@@ -30,6 +16,7 @@ def train_with_minibatch(train_data, test_data, model_filename, passes, batch_si
         my_model = gatedKneserNey(session=sess,
                                   batch_size=batch_size,
                                   learning_rate=learning_rate,
+                                  embedding_dim=embedding_dim,
                                   hidden_dim1=hidden_dim1,
                                   hidden_dim2=hidden_dim2,
                                   num_classes=classes_size,
@@ -46,41 +33,39 @@ def train_with_minibatch(train_data, test_data, model_filename, passes, batch_si
 
                 start_idx = batch_idx * batch_size
                 end_idx = start_idx + batch_size
-                data_batch = train_data[start_idx:end_idx]
-                sample_ys, inputs_indices, inputs_values, inputs_shape = \
-                    extract_words(data_batch,classes_size)
+                sample_ys = [train_data[i][1] for i in range(start_idx,end_idx)]
+                inputs = [train_data[i][0] for i in range(start_idx,end_idx)]
                 batch_cost = my_model.batch_optimization(
-                    inputs=(inputs_indices,inputs_values,inputs_shape),labels=sample_ys,keep_prob=keep_prob)
+                    inputs=inputs,labels=sample_ys,keep_prob=keep_prob)
 
                 total_train_loss = total_train_loss + batch_cost
                 if batch_idx % print_frequency == 0:
                     print 'training loss of batch', batch_idx, ': = ', batch_cost
-                if batch_idx % (5*print_frequency) == 0:
+
+                if batch_idx % (10*print_frequency) == 0:
                     cumul_loss = 0
                     for i in range(test_num_batches):
                         start_idx = i * test_batch_size
                         end_idx = start_idx + test_batch_size
-                        data_batch = test_data[start_idx:end_idx]
-                        sample_ys, inputs_indices, inputs_values, inputs_shape = \
-                            extract_words(data_batch, classes_size)
+                        sample_ys = [test_data[x][1] for x in range(start_idx,end_idx)]
+                        inputs = [test_data[x][0] for x in range(start_idx,end_idx)]
                         batch_cost= my_model.predict(
-                            inputs=(inputs_indices, inputs_values, inputs_shape),
+                            inputs=inputs,
                             labels=sample_ys,
                             keep_prob=1)
                         cumul_loss = cumul_loss + batch_cost
 
                     temp_valid_preplixity = cumul_loss / test_num_batches
-                    print('validation data loss = %f', temp_valid_preplixity)
+                    print('validation data loss = ', temp_valid_preplixity)
 
             total_valid_loss = 0
             for i in range(test_num_batches):
                 start_idx = i * test_batch_size
                 end_idx = start_idx + test_batch_size
-                data_batch = test_data[start_idx:end_idx]
-                sample_ys, inputs_indices, inputs_values, inputs_shape = \
-                    extract_words(data_batch, classes_size)
+                sample_ys = [test_data[x][1] for x in range(start_idx,end_idx)]
+                inputs = [test_data[x][0] for x in range(start_idx,end_idx)]
                 batch_cost = my_model.predict(
-                    inputs=(inputs_indices, inputs_values, inputs_shape),
+                    inputs=inputs,
                     labels=sample_ys,
                     keep_prob=1)
                 total_valid_loss = total_valid_loss + batch_cost
@@ -116,6 +101,7 @@ def predict(test_data, model_path,best_epoch):
         my_model = gatedKneserNey(session=sess,
                                   batch_size=batch_size,
                                   learning_rate=learning_rate,
+                                  embedding_dim=embedding_dim,
                                   hidden_dim1=hidden_dim1,
                                   hidden_dim2=hidden_dim2,
                                   num_classes=classes_size,
@@ -126,11 +112,10 @@ def predict(test_data, model_path,best_epoch):
         for batch_idx in range(test_num_batches):
             start_idx = batch_idx * batch_size
             end_idx = start_idx + batch_size
-            data_batch = test_data[start_idx:end_idx]
-            sample_ys, inputs_indices, inputs_values, inputs_shape = extract_words(data_batch,
-                                                                                   classes_size)
+            sample_ys = [test_data[x][1] for x in range(start_idx,end_idx)]
+            inputs = [test_data[x][0] for x in range(start_idx,end_idx)]
             batch_cost = my_model.predict(
-                inputs=(inputs_indices,inputs_values, inputs_shape),
+                inputs=inputs,
                 labels=sample_ys,keep_prob=1)
             cumul_loss = cumul_loss + batch_cost
         print  'test cross entropy:', cumul_loss/test_num_batches
@@ -148,24 +133,26 @@ validation_filename = '../data/ptb/ptb.valid.txt'
 test_filename = '../data/ptb/ptb.test.txt'
 
 ##### training parameters ##################
-passes = 10
-batch_size = 100  #for training
-test_batch_size = 100
+passes = 30
+batch_size = 300 #for training
+test_batch_size = batch_size
 
-learning_rate = 0.01
+learning_rate = 0.0005
 
-hidden_dim1 = 1024
+embedding_dim = 512
+hidden_dim1 = 512
 hidden_dim2 = 512
 
 max_learning_rate_decay = 8
 
-keep_prob = 0.7
+keep_prob = 0.75
 reg = 0.0
 classes_size = 10000
 print_frequency = 100
 
 # path for final trained model
-model_filename = './saved_models/gatedKneserNey/'+ str(hidden_dim1) + '_' + str(hidden_dim2)+'_' + str(keep_prob)
+model_filename = './saved_models/gatedKneserNey/'+ str(hidden_dim1) +\
+                 '_' + str(hidden_dim2)+'_' + str(keep_prob)+ '_' + str(reg)
 
 
 print("extracting train and test inputs and labels as a very long sequence of words")
