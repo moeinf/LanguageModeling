@@ -2,6 +2,7 @@ import tensorflow as tf
 from utils import *
 import operator
 
+
 #Basic RNN model, not using Tensorflow Gradient descent, from Denny Britz tutorial on WildML
 class BasicRNN():
     def __init__(self, word_dim, hidden_dim=100, bptt_truncate=4):
@@ -125,6 +126,7 @@ class BasicRNN():
         self.V -= learning_rate * dLdV
         self.W -= learning_rate * dLdW
 
+
 #Basic RNN model, not using TensorFlow cell
 class cellRNN():
     def __init__(self,
@@ -222,6 +224,7 @@ class cellRNN():
 
         return predictions,single_predictions, batch_cost,state
 
+
 #Basic RNN model, using TensorFlow cell, Static run
 class TfCellRNN():
     def __init__(self,
@@ -305,6 +308,7 @@ class TfCellRNN():
                                                          self.total_loss,self.final_state],feed_dict=feed_dict)
 
         return predictions,single_predictions, batch_cost,state
+
 
 #Single-layer LSTM model, using TensorFlow LSTM cell
 class TfCellLSTM():
@@ -395,6 +399,7 @@ class TfCellLSTM():
                                                          self.total_loss,self.final_state],feed_dict=feed_dict)
 
         return predictions,single_predictions, batch_cost,state
+
 
 #GRU model, not using TensorFlow GRU cell
 class cellGRU():
@@ -507,6 +512,7 @@ class cellGRU():
                                                          self.total_loss,self.final_state],feed_dict=feed_dict)
 
         return predictions,single_predictions, batch_cost,state
+
 
 #Single (or Multi)-Layer RNN using TensroFlow cell, dynamic run
 class TfMultiCellRNN():
@@ -763,6 +769,7 @@ class TfMultiCellLSTM():
         batch_cost,state = self.sess.run([ self.total_loss,self.final_state],feed_dict=feed_dict)
         return batch_cost,state
 
+
 #This class uses Multi-layer LSTM and for the softmax layer uses
 # basic smoothing ideas, such as add-1/2 and power-law behavior
 # in combination to regular softmax
@@ -907,6 +914,7 @@ class SmoothedSoftmax():
                      self.output_keep_prob:keep_prob}
         batch_cost,state = self.sess.run([ self.total_loss,self.final_state],feed_dict=feed_dict)
         return batch_cost,state
+
 
 #This model uses Multi Layer LSTM and for the softmax layer,
 # it uses Mixture of Softmax, based on ideas from MoS paper
@@ -1063,19 +1071,22 @@ class MoS():
         batch_cost,state = self.sess.run([ self.total_loss,self.final_state],feed_dict=feed_dict)
         return batch_cost,state
 
-#This model was supposed to implement the gated-version of Kneser-Ney
+
+#This model implements the gated-version of Kneser-Ney
 # using Neural Nets. Namely, It predicts the next word from the previous
 # word from two different paths, and then interpolates between the two.
 # One path is by learning a transition probability matrix and the other
-# is by learning a backoff component (independent of the first word).
-class gatedKneserNey():
+# is by learning a back-off component (independent of the first word).
+class GatedKneserNey():
     def __init__(self,
                  session=None,
                  batch_size=20,
                  learning_rate=0.05,
                  embedding_dim=128,
                  hidden_dim1=256,
-                 hidden_dim2=128,
+                 hidden_dim2=256,
+                 hidden_dim1_p=128,
+                 hidden_dim2_p=128,
                  num_classes=1000,
                  regularizer=0.00001,
                  init_scale=0.08):
@@ -1086,65 +1097,69 @@ class gatedKneserNey():
         self.embedding_dim = embedding_dim
         self.hidden_dim1 = hidden_dim1
         self.hidden_dim2 = hidden_dim2
+        self.hidden_dim1_p = hidden_dim1_p
+        self.hidden_dim2_p = hidden_dim2_p
         self.num_classes = num_classes
         self.regularizer = regularizer
         self.init_scale = init_scale
+
         self._init_params()
         self._init_variables()
-
-
         self.inference_ops()
         self.loss_ops()
         self.optimization_ops()
-
-
         self.init = tf.global_variables_initializer()
         self.sess.run(self.init)
-
         self._saver = tf.train.Saver()
 
     def _init_params(self):
-
-        self.x = tf.placeholder(tf.int32, [None],"prev_word")
-        self.y = tf.placeholder(tf.int32, [None],"next_word")
+        self.x = tf.placeholder(tf.int32, [None], "prev_word")
+        self.y = tf.placeholder(tf.int32, [None], "next_word")
         self.keep_prob = tf.placeholder(tf.float32)
 
     def _init_variables(self):
-
-        # self.embeddings = tf.Variable(tf.random_uniform([self.num_classes,self.num_classes],
-        #                               -5*self.init_scale, 5*self.init_scale))
-
-
-        ##variables for hidden layers (transition probability matrix)
-
+        # variables for hidden layers (transition probability matrix)
         self.embeddings = tf.Variable(tf.random_uniform([self.num_classes,self.embedding_dim],
                                                         -7*self.init_scale ,7*self.init_scale))
         self.W1 = tf.Variable(tf.random_uniform([self.embedding_dim,self.hidden_dim1],
                                                 -self.init_scale, self.init_scale))
+        self.W1p = tf.Variable(tf.random_uniform([self.embedding_dim, self.hidden_dim1_p],
+                                                -self.init_scale, self.init_scale))
         self.W2 = tf.Variable(tf.random_uniform([self.hidden_dim1,self.hidden_dim2],
+                                                -self.init_scale, self.init_scale))
+        self.W2p = tf.Variable(tf.random_uniform([self.hidden_dim1_p, self.hidden_dim2_p],
                                                 -self.init_scale, self.init_scale))
         self.W3 = tf.Variable(tf.random_uniform([self.hidden_dim2,self.num_classes],
                                                 -7*self.init_scale, 7*self.init_scale))
+        self.W3p = tf.Variable(tf.random_uniform([self.hidden_dim2_p, self.num_classes],
+                                                -7 * self.init_scale, 7 * self.init_scale))
         self.b1 = tf.Variable(tf.random_uniform([self.hidden_dim1],
+                                                -self.init_scale, self.init_scale))
+        self.b1p = tf.Variable(tf.random_uniform([self.hidden_dim1_p],
                                                 -self.init_scale, self.init_scale))
         self.b2 = tf.Variable(tf.random_uniform([self.hidden_dim2],
                                                 -self.init_scale, self.init_scale))
+        self.b2p = tf.Variable(tf.random_uniform([self.hidden_dim2_p],
+                                                -self.init_scale, self.init_scale))
         self.b3 = tf.Variable(tf.random_uniform([self.num_classes],
                                                 -7*self.init_scale, 7*self.init_scale))
+        self.b3p = tf.Variable(tf.random_uniform([self.num_classes],
+                                                -7 * self.init_scale, 7 * self.init_scale))
 
-        ### variables for interpolation coefficient and backoff component
+        self.Wmixture = tf.Variable(np.random.rand(self.embedding_dim, 2),
+                                    dtype=tf.float32, name='mixture_weights')
+        self.bmixture = tf.Variable(np.random.rand(2),
+                                    dtype=tf.float32, name='mixture_bias')
+        # variables for interpolation coefficient and back-off component
 
-        # self.Wz = tf.Variable(tf.random_uniform([self.embedding_dim,2],
-        #                                         -self.init_scale ,self.init_scale ))
-        # self.backoff = tf.Variable(tf.random_uniform([self.num_classes],
-        #                                              -self.init_scale ,self.init_scale ))
-
-
-
+        self.Wz = tf.Variable(tf.random_uniform([self.embedding_dim, 2],
+                                                -self.init_scale, self.init_scale ))
+        self.backoff = tf.Variable(tf.random_uniform([self.num_classes],
+                                                     -self.init_scale, self.init_scale ))
 
     def inference_ops(self):
 
-        ## model 1- Gated Kneser-Ney
+        # model 1- Gated Kneser-Ney
         # self.inputs = tf.nn.embedding_lookup(self.embeddings,self.x)
         # self.z = tf.nn.softmax(tf.matmul(self.inputs, self.Wz))
         # # self.check_z = tf.reduce_sum(self.z,axis=1)
@@ -1152,43 +1167,91 @@ class gatedKneserNey():
         # # self.check_b =tf.reduce_sum(self.backoff_comp,axis=1)
         # layer1 = tf.nn.relu(tf.add(tf.matmul(self.inputs, self.W1), self.b1))
         # layer1 = tf.nn.dropout(layer1, self.keep_prob)
-        # layer2 = tf.nn.relu(tf.add(tf.matmul(layer1, self.W2), self.b2))
-        # layer2 = tf.nn.dropout(layer2, self.keep_prob)
-        # layer3 = tf.add(tf.matmul(layer2, self.W3), self.b3)
-        # layer3 = tf.nn.dropout(layer3,self.keep_prob)
+        # # layer2 = tf.nn.relu(tf.add(tf.matmul(layer1, self.W2), self.b2))
+        # # layer2 = tf.nn.dropout(layer2, self.keep_prob)
+        # layer3 = tf.add(tf.matmul(layer1, self.W3), self.b3)
+        # # layer3 = tf.nn.dropout(layer3,self.keep_prob)
         # self.count_comp = tf.nn.softmax(layer3)
         # self.count_comp = tf.multiply(tf.slice(self.z,[0,1],[-1,1]),self.count_comp)
         # # self.check_c = tf.reduce_sum(self.count_comp,axis=1)
         # self.logits = tf.add(self.count_comp,self.backoff_comp)
         # self.logits = tf.log(self.logits)
         # print('### logits:', self.logits.get_shape().as_list())
-        #
-        #### model 2: just transition probability matrix, using hidden layers
 
-      
-        self.inputs = tf.nn.embedding_lookup(self.embeddings,self.x)
-        self.inputs = tf.nn.dropout(self.inputs,self.keep_prob)
+        # model 2: bigram model with a transition probability matrix, using hidden layers
+        # using two parallel paths and then outputs a mixture of the two outputs
+        self.inputs = tf.nn.embedding_lookup(self.embeddings, self.x)
+        self.inputs = tf.nn.dropout(self.inputs, self.keep_prob)
         print('iuputs size: ', self.inputs.get_shape().as_list())
-        layer1 = tf.nn.tanh(tf.add(tf.matmul(self.inputs,self.W1),self.b1))
-        layer1 = tf.nn.dropout(layer1,self.keep_prob)
-        # layer2 = tf.nn.tanh(tf.add(tf.matmul(layer1,self.W2),self.b2))
-        # layer2 = tf.nn.dropout(layer2,self.keep_prob)
-        self.logits = tf.add(tf.matmul(layer1,self.W3),self.b3)
 
-        ####model 3: learning just a probability matrix
+        # first path
+        layer1 = tf.nn.tanh(tf.add(tf.matmul(self.inputs, self.W1), self.b1))
+        layer1 = tf.nn.dropout(layer1, self.keep_prob)
+        layer2 = tf.nn.tanh(tf.add(tf.matmul(layer1, self.W2), self.b2))
+        layer2 = tf.nn.dropout(layer2,self.keep_prob)
+        self.logits_1 = tf.matmul(layer2, self.W3) + self.b3
+        self.comp = tf.nn.softmax(tf.reshape(self.logits_1, [-1, self.num_classes]))
+
+        # second path
+        layer1p = tf.nn.tanh(tf.add(tf.matmul(self.inputs, self.W1p), self.b1p))
+        layer1p = tf.nn.dropout(layer1p, self.keep_prob)
+        layer2p = tf.nn.tanh(tf.add(tf.matmul(layer1p, self.W2p), self.b2p))
+        layer2p = tf.nn.dropout(layer2p, self.keep_prob)
+        self.logits_p = tf.matmul(layer2p, self.W3p) + self.b3p
+        self.comp_p = tf.nn.softmax(tf.reshape(self.logits_p, [-1, self.num_classes]))
+
+        # mixture weights
+        self.pi = tf.nn.softmax(tf.matmul(self.inputs, self.Wmixture) + self.bmixture)
+        print('### pi size:', self.pi.get_shape().as_list())
+
+        # mixing outputs
+        self.prob = tf.add(tf.multiply(tf.slice(self.pi, [0, 0], [-1, 1]), self.comp),
+                                  tf.multiply(tf.slice(self.pi, [0, 1], [-1, 1]), self.comp_p))
+        print('### prob size:', self.prob.get_shape().as_list())
+        self.logits = tf.log(self.prob)
+        print('logits size: ', self.logits.get_shape().as_list())
+
+        # model 3: learning just a probability matrix, a 10k x 10k matrix
         # self.logits = tf.nn.embedding_lookup(self.embeddings,self.x)
 
-
-        print('### logits:', self.logits.get_shape().as_list())
-
+        # model 4- Gated Kneser-Ney, with interpolated loss function
+        # self.inputs = tf.nn.embedding_lookup(self.embeddings,self.x)
+        # # self.check_z = tf.reduce_sum(self.z,axis=1)
+        # # self.check_b =tf.reduce_sum(self.backoff_comp,axis=1)
+        # layer1 = tf.nn.relu(tf.add(tf.matmul(self.inputs, self.W1), self.b1))
+        # layer1 = tf.nn.dropout(layer1, self.keep_prob)
+        # # layer2 = tf.nn.relu(tf.add(tf.matmul(layer1, self.W2), self.b2))
+        # # layer2 = tf.nn.dropout(layer2, self.keep_prob)
+        # layer3 = tf.add(tf.matmul(layer1, self.W3), self.b3)
+        # # layer3 = tf.nn.dropout(layer3,self.keep_prob)
+        # self.logits_count = layer3
+        # # self.check_c = tf.reduce_sum(self.count_comp,axis=1)
+        # self.logits_backoff = tf.reshape(tf.tile(self.backoff,
+        #                                          [self.batch_size]),
+        #                                         [self.batch_size,-1])
+        #
+        # self.weight = tf.cast(tf.tile(tf.random_uniform([self.batch_size,1],
+        #                                         maxval=2,dtype=tf.int32),
+        #                                         [1,self.num_classes]),tf.float32)
+        #
+        # print('### weight shape:', self.weight.get_shape().as_list())
+        # self.weight_n = tf.subtract(tf.ones_like(self.weight),self.weight)
+        # print('### negative weight shape:', self.weight_n.get_shape().as_list())
+        #
+        # print('### logits_count:', self.logits_count.get_shape().as_list())
+        # print('### logits_backoff:', self.logits_backoff.get_shape().as_list())
+        #
+        # self.logits = tf.add(tf.multiply(self.weight,self.logits_count),
+        #                      tf.multiply(self.weight_n,self.logits_backoff))
         return
 
     def loss_ops(self):
-
         self.weights = tf.trainable_variables()
         self.l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in self.weights]) * self.regularizer
         self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.y,
                                                                                   logits=self.logits))
+        # self.loss_test = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.y,
+        #                                                                                logits=self.logits_test))
         return
 
     def optimization_ops(self):
@@ -1200,11 +1263,11 @@ class gatedKneserNey():
         return
 
     def batch_optimization(self, inputs, labels, keep_prob):
-        feed_dict = {self.x: inputs, self.y: labels,self.keep_prob:keep_prob}
-        batch_cost, _= self.sess.run([self.loss,self.train_step],feed_dict=feed_dict)
+        feed_dict = {self.x: inputs, self.y: labels, self.keep_prob: keep_prob}
+        batch_cost,  _ = self.sess.run([self.loss, self.train_step], feed_dict=feed_dict)
         return batch_cost
 
     def predict(self,inputs,labels,keep_prob):
-        feed_dict = {self.x: inputs, self.y: labels, self.keep_prob:keep_prob}
+        feed_dict = {self.x: inputs, self.y: labels, self.keep_prob: keep_prob}
         batch_cost = self.sess.run(self.loss, feed_dict=feed_dict)
         return batch_cost

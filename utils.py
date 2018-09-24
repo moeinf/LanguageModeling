@@ -1,4 +1,4 @@
-##This script contains funtions for pre-processing text data,
+# This script contains functions for pre-processing text data,
 # and generating synthetic data according to several models
 
 import numpy as np
@@ -10,15 +10,16 @@ def softmax(x):
     xt = np.exp(x - np.max(x))
     return xt / np.sum(xt)
 
+
 def non_linear_map(x,percentile):
     th = np.percentile(x,percentile)
     x[x<th] = 0
     x =x / sum(x)
     return x
 
-#########preprocessing functions for real-data
 
-def preProcess(train_filename,validation_filename, test_filename, vocab_size,batch_size):
+# pre-processing functions for real-data
+def preProcess(train_filename, validation_filename, test_filename, vocab_size,batch_size):
     unknown_token = 'UNKNOWN'
     f_read_train = open(train_filename,'r')
     f_read_validation = open(validation_filename,'r')
@@ -95,7 +96,6 @@ def preProcess(train_filename,validation_filename, test_filename, vocab_size,bat
             effective_train_length, effective_validation_length, effective_test_length)
 
 
-
 def gatedPreProcess(train_filename, validation_filename, test_filename, vocab_size, batch_size):
     unknown_token = 'UNKNOWN'
     f_read_train = open(train_filename, 'r')
@@ -155,17 +155,17 @@ def gatedPreProcess(train_filename, validation_filename, test_filename, vocab_si
     y_test = np.roll(x_test, -1)
     y_test[-1] = 0
 
-    train_data = [(x_train[i],y_train[i]) for i in range(len(x_train))]
+    train_data = [(x_train[i], y_train[i]) for i in range(len(x_train))]
     shuffle(train_data)
     validation_data = [(x_validation[i], y_validation[i]) for i in range(len(x_validation))]
     shuffle(validation_data)
     test_data = [(x_test[i], y_test[i]) for i in range(len(x_test))]
     shuffle(test_data)
-    print ([(index_to_word[train_data[i][0]],index_to_word[train_data[i][1]]) for i in range(10)])
+    print ([(index_to_word[train_data[i][0]], index_to_word[train_data[i][1]]) for i in range(10)])
+    return train_data, test_data, validation_data
 
-    return (train_data,test_data,validation_data,effective_train_length, effective_validation_length, effective_test_length)
 
-####### preprocessing functions for synthetic data
+# pre-processing functions for synthetic data
 def preProcessSynthetic(batch_size,data_filename):
 
 
@@ -204,7 +204,8 @@ def preProcessSynthetic(batch_size,data_filename):
     return (x_train, y_train, x_valid, y_valid, x_test, y_test,
             effective_train_len, effective_valid_len, effective_test_len)
 
-##converts bigrams to sequence and then pre-process
+
+# converts bi-grams to sequence and then pre-process
 def gatedPreProcessSyn(data_filename,batch_size):
 
 
@@ -239,8 +240,7 @@ def gatedPreProcessSyn(data_filename,batch_size):
     effective_train_len, effective_valid_len, effective_test_len)
 
 
-######## data generation functions
-
+# data generation functions
 def generate_syn_closed_hmm(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len):
     shift = int(0.2 * vocab_size)
@@ -390,8 +390,7 @@ def generate_syn_closed_hmm(vocab_size, state_size, train_seq_len,
     return W, Hx, Hh, beta, st, entropy, x_train_seq, x_valid_seq, x_test_seq
 
 
-
-##generate a sequence according to the recurrent model
+# generate a sequence according to the recurrent model
 def generate_syn(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len):
     shift = int(0.2 * vocab_size)
@@ -509,7 +508,7 @@ def generate_syn(vocab_size, state_size, train_seq_len,
 
     return W, Hx, Hh, beta, st, entropy, x_train_seq, x_valid_seq, x_test_seq
 
-##generate a sequence according to the recurrent model, unique solution
+# generate a sequence according to the recurrent model, unique solution
 def generate_syn_unique(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len):
     shift = int(0.2 * vocab_size)
@@ -754,7 +753,7 @@ def generate_syn_nonlinear(vocab_size, state_size, train_seq_len,
     return W, Hx, Hh, beta, st, test_emp_entropy, x_train_seq, x_valid_seq, x_test_seq
 
 
-##genrating data based on impaired recurrent model, or hmm
+# generates data based on impaired recurrent model, or hmm
 
 def generate_syn_hmm(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len):
@@ -852,7 +851,7 @@ def generate_syn_hmm(vocab_size, state_size, train_seq_len,
 
     return W,Hh,st, entropy, x_train_seq, x_valid_seq, x_test_seq
 
-##generates a sequence based on the hidden-markov model, h_t  -> h_t+1, and h_t -> x_t
+# generates a sequence based on the hidden-markov model, h_t  -> h_t+1, and h_t -> x_t
 def generate_syn_hmm_nonlinear(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len,percentile):
     alpha = 1.3
@@ -943,7 +942,7 @@ def generate_syn_hmm_nonlinear(vocab_size, state_size, train_seq_len,
     return W,H,st, entropy, x_train_seq, x_valid_seq, x_test_seq
 
 
-##generate a sequence, and then returns the full sequence
+# generate a sequence, and then returns the full sequence
 def generate_syn_lr(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len):
     alpha = 1.3
@@ -1017,7 +1016,7 @@ def generate_syn_lr(vocab_size, state_size, train_seq_len,
     return W,H,st, entropy, x_train_seq, x_valid_seq, x_test_seq
 
 
-##generate a sequence based on non-linear low-rank model, x_t->h_t->x_t+1->h_t_+1
+# generate a sequence based on non-linear low-rank model, x_t->h_t->x_t+1->h_t_+1
 def generate_syn_lr_nonlinear(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len,percentile):
     alpha = 1.3
@@ -1095,11 +1094,7 @@ def generate_syn_lr_nonlinear(vocab_size, state_size, train_seq_len,
     return P,st, entropy, x_train_seq, x_valid_seq, x_test_seq
 
 
-
-################## Extraaaaaas ############
-###########################################
-
-##generates independent pairs (bi-grams) and returns bi-grams
+# generates independent pairs (bi-grams) and returns bi-grams
 def generate_syn_non_recur_mixed(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len):
     alpha = 1.05
@@ -1155,7 +1150,7 @@ def generate_syn_non_recur_mixed(vocab_size, state_size, train_seq_len,
     return W,H,entropy,st,x_train_seq, x_valid_seq, x_test_seq
 
 
-##generate a sequence based on log-sum-exp of low-ranks
+# generate a sequence based on log-sum-exp of low-ranks
 def generate_syn_lr_nonlinear_mixture(vocab_size, state_size, train_seq_len,
                        test_seq_len, valid_seq_len):
     alpha = 1.3
